@@ -59,13 +59,17 @@ ansible-playbook -i inventory.ini setup.yaml
 4️⃣ Verify Deployment
 	•	Check DigitalOcean Dashboard to confirm infrastructure is running.
 	•	Use terraform output to get public IPs.
-🔐 Environment Variables
+## 🔐 Environment Variables
 Before running Terraform, ensure you have the required secrets in GitHub Actions or your local environment:
 ```sh
 export TF_VAR_do_token="your-digitalocean-api-token"
 export TF_VAR_ssh_key_fingerprint="your-ssh-key-fingerprint"
 ```
 
-🔄 Continuous Deployment (CI/CD)
+## 🔄 Continuous Deployment (CI/CD)
 	•	GitHub Actions automatically applies Terraform changes when updates are pushed.
 	•	Docker images are built and deployed using CI/CD workflows.
+
+## 📜 License
+
+This project is licensed under the MIT License.
