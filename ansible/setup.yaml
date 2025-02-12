@@ -1,0 +1,18 @@
+- name: Setup Backend and Frontend Servers
+  hosts: all
+  become: yes
+  tasks:
+    - name: Install Dependencies
+      apt:
+        name: ["docker.io", "docker-compose"]
+        state: present
+
+    - name: Clone Repository
+      git:
+        repo: "https://github.com/ChainElect/back-end.git"
+        dest: "/var/www/chain-elect"
+
+    - name: Run Docker Compose
+      command: docker-compose up -d
+      args:
+        chdir: /var/www/chain-elect
