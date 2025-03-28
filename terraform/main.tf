@@ -1,3 +1,6 @@
+###################################################
+# Terraform Configuration
+###################################################
 terraform {
   required_providers {
     digitalocean = {
@@ -7,39 +10,105 @@ terraform {
   }
 }
 
-provider "digitalocean" {
-  token = var.do_token
-}
-
+###################################################
 # VPC Network
-resource "digitalocean_vpc" "voting_vpc" {
-  name   = "voting-vpc"
-  region = var.region
-}
+###################################################
+# resource "digitalocean_vpc" "vpc" {
+#   name   = "dev-vpc"
+#   region = var.region
+# }
 
-# Backend Droplet (Cheapest Plan)
-resource "digitalocean_droplet" "backend" {
+########################################
+# Load Balancer
+########################################
+# resource "digitalocean_loadbalancer" "lb" {
+#   name   = "dev-lb"
+#   region = var.region
+
+# For frontend traffic
+# forwarding_rule {
+#   entry_protocol  = "tcp"
+#   entry_port      = 443
+#   target_protocol = "tcp"
+#   target_port     = 443
+# }
+
+# Health check (example)
+# healthcheck {
+#   protocol                 = "http"
+#   port                     = var.port
+#   path                     = "/health"
+#   check_interval_seconds   = 10
+#   response_timeout_seconds = 5
+#   healthy_threshold        = 3
+#   unhealthy_threshold      = 3
+# }
+
+# Attach both droplets
+#   droplet_ids = [
+#     digitalocean_droplet.droplet_nginx.id,
+#   ]
+# }
+
+########################################
+# 1) Nginx Droplet (Gateway)
+########################################
+resource "digitalocean_droplet" "droplet_nginx" {
   image    = "ubuntu-22-04-x64"
-  name     = "chain-elect-backend"
+  name     = "dev-nginx"
   region   = var.region
   size     = "s-1vcpu-1gb"
-  vpc_uuid = digitalocean_vpc.voting_vpc.id
   ssh_keys = [var.ssh_key_fingerprint]
+
+  user_data = templatefile("${path.module}/user_data/nginx.sh", {
+    FRONTEND_IP = digitalocean_droplet.droplet_frontend.ipv4_address_private
+    BACKEND_IP  = digitalocean_droplet.droplet_backend.ipv4_address_private
+  })
 }
 
-# Frontend Droplet (Cheapest Plan)
-resource "digitalocean_droplet" "frontend" {
+########################################
+# 2) Frontend Droplet
+########################################
+resource "digitalocean_droplet" "droplet_frontend" {
   image    = "ubuntu-22-04-x64"
-  name     = "chain-elect-frontend"
+  name     = "dev-frontend"
   region   = var.region
-  size     = "s-1vcpu-1gb"
-  vpc_uuid = digitalocean_vpc.voting_vpc.id
+  size     = "s-2vcpu-2gb"
   ssh_keys = [var.ssh_key_fingerprint]
+
+  user_data = file("${path.module}/user_data/frontend-cloud-config.yaml")
 }
 
-# PostgreSQL Database
-resource "digitalocean_database_cluster" "postgres" {
-  name       = "chainelect-db"
+########################################
+# 3) Backend Droplet
+########################################
+resource "digitalocean_droplet" "droplet_backend" {
+  image    = "ubuntu-22-04-x64"
+  name     = "dev-backend"
+  region   = var.region
+  size     = "s-2vcpu-2gb"
+  ssh_keys = [var.ssh_key_fingerprint]
+
+  # We'll do placeholder replacement in backend.sh
+  user_data = templatefile(
+    "${path.module}/user_data/backend-cloud-config.yaml",
+    {
+      PORT         = var.port,
+      DB_URL       = var.db_url,
+      JWT_SECRET   = var.jwt_secret,
+      ALG          = var.hashing_algorithm,
+      FRONT_ORIGIN = var.frontend_origin,
+      SENTRY_DSN   = var.sentry_dsn,
+      NODE_ENV     = var.node_env
+    }
+  )
+}
+
+###################################################
+# PostgreSQL Database Cluster
+###################################################
+resource "digitalocean_database_cluster" "db" {
+  name       = "dev-db"
   engine     = "pg"
   version    = "15"
   size       = "db-s-1vcpu-1gb"
@@ -47,56 +116,47 @@ resource "digitalocean_database_cluster" "postgres" {
   node_count = 1
 }
 
-# Storage Volume for PostgreSQL
+###################################################
+# Storage Volume for PostgreSQL (Optional)
+###################################################
 resource "digitalocean_volume" "db_volume" {
   region = var.region
-  name   = "db-storage"
-  size   = 20 # GB
+  name   = "dev-db-volume"
+  size   = 20
+}
+###################################################
+# DigitalOcean Domain (No IP - Just registers the domain)
+###################################################
+resource "digitalocean_domain" "chainelect" {
+  name = "chainelect.org" # No `ip_address` here
 }
 
-# Load Balancer
-resource "digitalocean_loadbalancer" "lb" {
-  name   = "voting-lb"
-  region = var.region
-  forwarding_rule {
-    entry_port     = 80
-    entry_protocol = "http"
-    target_port    = 80
-    target_protocol = "http"
-  }
-  forwarding_rule {
-    entry_port     = 443
-    entry_protocol = "https"
-    target_port    = 443
-    target_protocol = "https"
-  }
-  healthcheck {
-    port     = 80
-    protocol = "http"
-    path     = "/health"
-  }
+###################################################
+# DNS Records (All managed explicitly)
+###################################################
+# Root domain (@)
+resource "digitalocean_record" "root" {
+  domain = digitalocean_domain.chainelect.name
+  type   = "A"
+  name   = "@"
+  value  = digitalocean_droplet.droplet_nginx.ipv4_address
+  ttl    = 300 # 5-minute TTL for faster updates
 }
 
-# Firewall
-resource "digitalocean_firewall" "fw" {
-  name = "voting-firewall"
-  droplet_ids = [
-    digitalocean_droplet.backend.id,
-    digitalocean_droplet.frontend.id
-  ]
-  inbound_rule {
-    protocol         = "tcp"
-    port_range       = "22"
-    source_addresses = ["your-ip-address/32"]
-  }
-  inbound_rule {
-    protocol         = "tcp"
-    port_range       = "80"
-    source_addresses = ["0.0.0.0/0"]
-  }
-  inbound_rule {
-    protocol         = "tcp"
-    port_range       = "443"
-    source_addresses = ["0.0.0.0/0"]
-  }
+# www subdomain
+resource "digitalocean_record" "www" {
+  domain = digitalocean_domain.chainelect.name
+  type   = "A"
+  name   = "www"
+  value  = digitalocean_droplet.droplet_nginx.ipv4_address
+  ttl    = 300
+}
+
+# api subdomain
+resource "digitalocean_record" "api" {
+  domain = digitalocean_domain.chainelect.name
+  type   = "A"
+  name   = "api"
+  value  = digitalocean_droplet.droplet_nginx.ipv4_address
+  ttl    = 300
 }

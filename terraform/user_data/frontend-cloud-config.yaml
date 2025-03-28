@@ -1,0 +1,36 @@
+#cloud-config
+
+package_update: true
+package_upgrade: true
+packages:
+  - apt-transport-https
+  - ca-certificates
+  - curl
+  - software-properties-common
+  - git
+
+runcmd:
+  - fallocate -l 2G /swapfile
+  - chmod 600 /swapfile
+  - mkswap /swapfile
+  - swapon /swapfile
+
+  - curl -fsSL https://get.docker.com -o get-docker.sh
+  - sh get-docker.sh
+  - usermod -aG docker root
+
+  - curl -L "https://github.com/docker/compose/releases/download/v2.23.0/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+  - chmod +x /usr/local/bin/docker-compose
+
+  - mkdir -p /opt/app
+  - git clone https://github.com/ChainElectDemo/front-end.git /opt/app
+
+  - echo "REACT_APP_BACKEND_BASE_URL=https://api.chainelect.org" > /opt/app/.env
+  - echo "REACT_APP_BACKEND_BASE_URL=https://api.chainelect.org" > /opt/app/.env.production
+
+  - cd /opt/app
+  - /usr/local/bin/docker-compose build --no-cache
+  - /usr/local/bin/docker-compose up -d
+
+  - sleep 30
+  - docker ps -a

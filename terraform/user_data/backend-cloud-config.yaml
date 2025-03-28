@@ -1,0 +1,36 @@
+#cloud-config
+
+package_update: true
+package_upgrade: true
+packages:
+  - apt-transport-https
+  - ca-certificates
+  - curl
+  - software-properties-common
+  - git
+
+runcmd:
+  - curl -fsSL https://get.docker.com -o get-docker.sh
+  - sh get-docker.sh
+  - usermod -aG docker root
+
+  - curl -L "https://github.com/docker/compose/releases/download/v2.23.0/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+  - chmod +x /usr/local/bin/docker-compose
+
+  - mkdir -p /opt/backend
+  - git clone https://github.com/ChainElect/back-end.git /opt/backend
+
+  - echo "PORT={{ .PORT }}" > /opt/backend/.env
+  - echo "DATABASE_URL={{ .DB_URL }}" >> /opt/backend/.env
+  - echo "JWT_SECRET={{ .JWT_SECRET }}" >> /opt/backend/.env
+  - echo "HASHING_ALGORITHM={{ .ALG }}" >> /opt/backend/.env
+  - echo "FRONTEND_ORIGIN={{ .FRONT_ORIGIN }}" >> /opt/backend/.env
+  - echo "SENTRY_DSN={{ .SENTRY_DSN }}" >> /opt/backend/.env
+  - echo "NODE_ENV={{ .NODE_ENV }}" >> /opt/backend/.env
+
+  - cd /opt/backend
+  - /usr/local/bin/docker-compose build --no-cache
+  - /usr/local/bin/docker-compose up -d
+
+  - sleep 30
+  - docker ps -a

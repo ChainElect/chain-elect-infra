@@ -1,6 +1,7 @@
 # Terraform-specific files
 terraform/.terraform/
-terraform/.terraform.lock.hcl
+# Note: Commit .terraform.lock.hcl for reproducible builds
+# terraform/.terraform.lock.hcl
 terraform/terraform.tfstate
 terraform/terraform.tfstate.backup
 terraform/terraform.tfvars
@@ -11,3 +12,7 @@ ansible/*.retry
 # Logs & system files
 *.log
 *.DS_Store
+
+# Editor/IDE directories (optional)
+.vscode/
+.idea/
